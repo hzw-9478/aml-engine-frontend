@@ -1,15 +1,20 @@
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
+import path from 'path'
 
-// https://vite.dev/config/
 export default defineConfig({
-  plugins: [vue()],
+  plugins: [
+    vue({
+      template: {
+        compilerOptions: {
+          isCustomElement: tag => ['vue-flow'].includes(tag)
+        }
+      }
+    })
+  ],
   resolve: {
     alias: {
-      '@': '/src' // 确保与 tsconfig.json 的 paths 配置一致
+      '@': path.resolve(__dirname, './src')
     }
-  },
-  optimizeDeps: {
-    include: ['echarts']
   }
 })

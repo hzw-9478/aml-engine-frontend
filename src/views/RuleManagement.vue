@@ -1,8 +1,11 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
-import { ElButton, ElTable, ElTableColumn } from 'element-plus'
-import RuleBuilder from '@/components/RuleBuilder.vue';
+import { useRouter } from 'vue-router'
+import { ElButton, ElTable, ElTableColumn, ElSwitch, ElDialog, ElForm } from 'element-plus'
+import type { FormInstance } from 'element-plus'
+import RuleBuilder from '@/components/RuleBuilder.vue'
 
+// 类型定义
 interface Rule {
   id: number
   name: string
@@ -14,6 +17,22 @@ interface Rule {
   lastModifiedBy?: string
 }
 
+interface RuleGroup {
+  id: string
+  conjunction: 'AND' | 'OR'
+  conditions: Array<Condition | RuleGroup>
+}
+
+interface Condition {
+  id: string
+  field: string
+  operator: string
+  value: any
+}
+
+// ref声明
+const formRef = ref<FormInstance>()
+const dialogVisible = ref(false)
 const rules = ref<Rule[]>([
   { 
     id: 1, 
@@ -37,12 +56,33 @@ const rules = ref<Rule[]>([
   }
 ])
 
-const dialogVisible = ref(false)
-const currentRule = ref<any>({})
-const formRef = ref()
+const router = useRouter()
+const currentRule = ref<Partial<Rule>>({})
 const filterType = ref<string>('')
 const filterStatus = ref<string>('')
+const initialRuleGroup = ref<RuleGroup>({
+  id: Date.now().toString(),
+  conjunction: 'AND',
+  conditions: []
+})
 
+const ruleBuilderData = ref<RuleGroup>({
+  id: Date.now().toString(),
+  conjunction: 'AND',
+  conditions: []
+})
+
+const handleEditRule = (rule: Rule) => {
+  currentRule.value = rule
+  ruleBuilderData.value = {
+    id: rule.id.toString(),
+    conjunction: 'AND',
+    conditions: []
+  }
+  dialogVisible.value = true
+}
+
+// 计算属性
 const filteredRules = computed(() => {
   return rules.value.filter(rule => {
     const typeMatch = filterType.value ? rule.ruleType === filterType.value : true
@@ -51,40 +91,55 @@ const filteredRules = computed(() => {
   })
 })
 
-const handleEdit = (index: number) => {
-  currentRule.value = {...rules.value[index]}
-  dialogVisible.value = true
-}
-
-const handleSubmit = () => {
-  formRef.value.validate((valid: boolean) => {
-    if (valid) {
-      const index = rules.value.findIndex(r => r.id === currentRule.value.id)
-      if (index >= 0) {
-        rules.value[index] = {...currentRule.value}
-      } else {
-        rules.value.push({...currentRule.value, id: Date.now()})
-      }
-      dialogVisible.value = false
-    }
-  })
-}
-
+// 方法定义
 const handleNew = () => {
-  currentRule.value = { 
-    id: 0, 
-    name: '', 
-    status: '启用', 
+  currentRule.value = {
+    name: '',
+    status: '禁用',
     threshold: 0,
-    ruleType: '交易金额',
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-    lastModifiedBy: '当前用户'
+    ruleType: '交易金额'
   }
   dialogVisible.value = true
 }
 
-const handleClone = (rule: any) => {
+const handleEdit = (index: number) => {
+  router.push({
+    path: `/rule-builder/${rules.value[index].id}`,
+    query: {
+      ruleData: JSON.stringify(rules.value[index])
+    }
+  })
+}
+
+const handleSubmit = async () => {
+  if (!formRef.value) return
+  
+  const valid = await formRef.value.validate()
+  if (valid) {
+    const ruleData = ruleBuilderData.value
+    if (!currentRule.value.id) {
+      rules.value.push({
+        ...currentRule.value as Rule,
+        id: Date.now(),
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        lastModifiedBy: '当前用户'
+      })
+    } else {
+      const index = rules.value.findIndex(r => r.id === currentRule.value.id)
+      if (index >= 0) {
+        rules.value[index] = {
+          ...currentRule.value as Rule,
+          updatedAt: new Date().toISOString(),
+          lastModifiedBy: '当前用户'
+        }
+      }
+    }
+    dialogVisible.value = false
+  }
+}
+
+const handleClone = (rule: Rule) => {
   currentRule.value = {
     ...rule,
     id: Date.now(),
@@ -95,14 +150,14 @@ const handleClone = (rule: any) => {
   dialogVisible.value = true
 }
 
-const handleDelete = (rule: any) => {
+const handleDelete = (rule: Rule) => {
   const index = rules.value.findIndex(r => r.id === rule.id)
   if (index >= 0) {
     rules.value.splice(index, 1)
   }
 }
 
-const toggleStatus = (rule: any) => {
+const toggleStatus = (rule: Rule) => {
   const index = rules.value.findIndex(r => r.id === rule.id)
   if (index >= 0) {
     rules.value[index].status = rule.status
@@ -117,6 +172,14 @@ const toggleStatus = (rule: any) => {
       <h2>反洗钱规则配置</h2>
       <ElButton type="primary" @click="handleNew">新建规则</ElButton>
     </div>
+    
+    <ElDialog v-model="dialogVisible" title="规则配置" width="70%">
+      <RuleBuilder
+        v-model="ruleBuilderData"
+        @save="handleSubmit"
+        @cancel="dialogVisible = false"
+      />
+    </ElDialog>
     
     <ElTable :data="rules" border>
       <ElTableColumn prop="name" label="规则名称" width="200" />
@@ -134,34 +197,6 @@ const toggleStatus = (rule: any) => {
         </template>
       </ElTableColumn>
     </ElTable>
-
-    <ElDialog v-model="dialogVisible" title="规则配置" width="30%">
-      <ElForm :model="currentRule" ref="formRef" label-width="100px">
-        <ElFormItem label="规则名称" prop="name" 
-          :rules="[{ required: true, message: '请输入规则名称', trigger: 'blur' }]">
-          <ElInput v-model="currentRule.name" />
-        </ElFormItem>
-        <ElFormItem label="状态" prop="status">
-          <ElSelect v-model="currentRule.status">
-            <ElOption label="启用" value="启用" />
-            <ElOption label="禁用" value="禁用" />
-          </ElSelect>
-        </ElFormItem>
-        <ElFormItem label="规则条件">
-          <RuleBuilder 
-            v-model="currentRule.conditions" 
-            @save="handleSubmit" 
-            @cancel="dialogVisible = false"
-          />
-        </ElFormItem>
-      </ElForm>
-      <template #footer>
-        <span class="dialog-footer">
-          <ElButton @click="dialogVisible = false">取消</ElButton>
-          <ElButton type="primary" @click="handleSubmit">确定</ElButton>
-        </span>
-      </template>
-    </ElDialog>
   </div>
 </template>
 
@@ -171,5 +206,18 @@ const toggleStatus = (rule: any) => {
   justify-content: space-between;
   margin-bottom: 20px;
   align-items: center;
+}
+
+.rule-management {
+  width: 100%;
+  height: 100%;
+  min-height: 600px;
+}
+
+.rule-management :deep(.vue-flow) {
+  width: 100%;
+  height: 100%;
+  min-height: 500px;
+  position: relative;
 }
 </style>

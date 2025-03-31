@@ -37,8 +37,8 @@
 </template>
 
 <script setup lang="ts">
-import { Management, TrendCharts, Document } from '@element-plus/icons-vue'
-
+import { Management, TrendCharts, Document, Odometer } from '@element-plus/icons-vue'
+import { ElIcon, ElRow, ElCol, ElCard } from 'element-plus'
 import { useRouter } from 'vue-router'
 
 const router = useRouter()
